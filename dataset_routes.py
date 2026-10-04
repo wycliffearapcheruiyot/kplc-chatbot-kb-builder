@@ -21,11 +21,11 @@ Wire it up in main.py (2 lines):
 """
 
 import hmac
-import os
 import time
 
 from fastapi import APIRouter, Header, HTTPException, Response
 
+from app_config import cfg
 from dataset_manager import DatasetError, check_dataset
 
 MAX_WAIT_SECONDS = 120
@@ -36,7 +36,7 @@ def build_router(get_db) -> APIRouter:
     router = APIRouter(prefix="/dataset", tags=["dataset"])
 
     def _authorize(secret):
-        expected = os.environ.get("DATASET_TRIGGER_SECRET")
+        expected = cfg.get_str("DATASET_TRIGGER_SECRET")
         if not expected:
             raise HTTPException(500, "DATASET_TRIGGER_SECRET is not configured on the server.")
         if not secret or not hmac.compare_digest(secret, expected):

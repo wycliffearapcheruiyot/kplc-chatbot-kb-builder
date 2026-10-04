@@ -26,7 +26,6 @@ Environment variables
 """
 
 import json
-import os
 import re
 import subprocess
 import tempfile
@@ -34,6 +33,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pymongo.errors import DuplicateKeyError
+
+from app_config import cfg as settings  # admin-panel override -> env var -> default
 
 DOC_ID = "dataset"
 KERNEL_TEMPLATE = Path(__file__).parent / "dataset_kernel" / "fetch_dataset.py"
@@ -59,27 +60,27 @@ def _col(db):
 
 
 def _timeout():
-    return timedelta(minutes=int(os.environ.get("DATASET_PREPARE_TIMEOUT_MINUTES", "90")))
+    return timedelta(minutes=settings.get_int("DATASET_PREPARE_TIMEOUT_MINUTES", 90))
 
 
 def _config():
-    dataset = os.environ.get("KAGGLE_DATASET", "").strip()
-    hf_repo = os.environ.get("HF_REPO_ID", "").strip()
+    dataset = settings.get_str("KAGGLE_DATASET")
+    hf_repo = settings.get_str("HF_REPO_ID")
     if "/" not in dataset:
         raise DatasetError("KAGGLE_DATASET must be set to 'owner/slug'.")
     if not hf_repo:
         raise DatasetError("HF_REPO_ID is not set.")
-    user, key = os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")
+    user, key = settings.get_str("KAGGLE_USERNAME"), settings.get_str("KAGGLE_KEY")
     if not (user and key):
         raise DatasetError("KAGGLE_USERNAME / KAGGLE_KEY are not set in the environment.")
     return {
         "dataset": dataset,
         "hf_repo": hf_repo,
-        "hf_revision": os.environ.get("HF_REVISION", "").strip(),
-        "title": os.environ.get("DATASET_TITLE", "").strip() or dataset.split("/", 1)[1],
-        "expected_file": os.environ.get("DATASET_EXPECTED_FILE", "").strip(),
-        "kernel_slug": os.environ.get("DATASET_KERNEL_SLUG", "hf-to-kaggle-dataset").strip(),
-        "env": {**os.environ, "KAGGLE_USERNAME": user, "KAGGLE_KEY": key},
+        "hf_revision": settings.get_str("HF_REVISION"),
+        "title": settings.get_str("DATASET_TITLE") or dataset.split("/", 1)[1],
+        "expected_file": settings.get_str("DATASET_EXPECTED_FILE"),
+        "kernel_slug": settings.get_str("DATASET_KERNEL_SLUG", "hf-to-kaggle-dataset"),
+        "env": {**settings.environ(), "KAGGLE_USERNAME": user, "KAGGLE_KEY": key},
         "username": user,
     }
 

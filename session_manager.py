@@ -21,7 +21,6 @@ Safety nets (a Kaggle run can die without calling any webhook):
 """
 
 import io
-import os
 import subprocess
 import tarfile
 import tempfile
@@ -30,11 +29,18 @@ from pathlib import Path, PurePosixPath
 
 import requests
 
+from app_config import cfg  # admin-panel override -> env var -> default
+
 SESSION_DOC_ID = "session"
 VALID_STATUSES = {"idle", "starting", "ready"}
 
-STARTING_TIMEOUT = timedelta(minutes=int(os.environ.get("STARTING_TIMEOUT_MINUTES", "15")))
-READY_MAX_AGE = timedelta(hours=int(os.environ.get("READY_MAX_AGE_HOURS", "12")))
+
+def _starting_timeout() -> timedelta:
+    return timedelta(minutes=cfg.get_int("STARTING_TIMEOUT_MINUTES", 15))
+
+
+def _ready_max_age() -> timedelta:
+    return timedelta(hours=cfg.get_int("READY_MAX_AGE_HOURS", 12))
 
 
 class SessionError(Exception):
@@ -69,8 +75,8 @@ def get_status(db) -> dict:
     status, updated = doc.get("status"), _as_utc(doc.get("updated_at"))
     if updated:
         age = _now() - updated
-        stale = (status == "starting" and age > STARTING_TIMEOUT) or (
-            status == "ready" and age > READY_MAX_AGE
+        stale = (status == "starting" and age > _starting_timeout()) or (
+            status == "ready" and age > _ready_max_age()
         )
         if stale:
             # Filter on the old status so a concurrent webhook can't be clobbered.
@@ -86,8 +92,8 @@ def get_status(db) -> dict:
 def _download_kernel_from_github(dest: Path) -> None:
     """Downloads the notebook repo as a tarball (no git binary needed) and
     unpacks it flat into `dest`, so kernel-metadata.json sits at its top level."""
-    repo = os.environ.get("KAGGLE_KERNEL_REPO")  # "owner/repo"
-    ref = os.environ.get("KAGGLE_KERNEL_REF", "main")
+    repo = cfg.get_str("KAGGLE_KERNEL_REPO")  # "owner/repo"
+    ref = cfg.get_str("KAGGLE_KERNEL_REF", "main") or "main"
     if not repo:
         raise SessionError(
             "KAGGLE_KERNEL_REPO is not set. Set it to the GitHub repo holding the "
@@ -95,7 +101,7 @@ def _download_kernel_from_github(dest: Path) -> None:
             "(or set KAGGLE_KERNEL_DIR to a local folder for development)."
         )
     headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN")  # only needed if the repo is private
+    token = cfg.get_str("GITHUB_TOKEN")  # only needed if the repo is private
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
@@ -150,13 +156,13 @@ def start_session(db) -> dict:
     if current["status"] in ("starting", "ready"):
         return current  # no-op, just report current state
 
-    kaggle_username = os.environ.get("KAGGLE_USERNAME")
-    kaggle_key = os.environ.get("KAGGLE_KEY")
+    kaggle_username = cfg.get_str("KAGGLE_USERNAME")
+    kaggle_key = cfg.get_str("KAGGLE_KEY")
     if not (kaggle_username and kaggle_key):
         raise SessionError("KAGGLE_USERNAME / KAGGLE_KEY are not set in the environment.")
-    env = {**os.environ, "KAGGLE_USERNAME": kaggle_username, "KAGGLE_KEY": kaggle_key}
+    env = {**cfg.environ(), "KAGGLE_USERNAME": kaggle_username, "KAGGLE_KEY": kaggle_key}
 
-    local_dir = os.environ.get("KAGGLE_KERNEL_DIR")
+    local_dir = cfg.get_str("KAGGLE_KERNEL_DIR")
     if local_dir:  # local development override
         _kaggle_push(local_dir, env)
     else:
